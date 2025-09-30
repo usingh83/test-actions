@@ -1,3 +1,4 @@
+language: yaml
 name: Process Questionnaire
 
 on:
@@ -12,6 +13,7 @@ jobs:
       checks: write
       contents: read
       pull-requests: write
+      issues: write
     steps:
       - name: Parse form
         id: parse
@@ -23,7 +25,26 @@ jobs:
       - name: Extract PR number
         id: extract
         run: |
-          PR_NUMBER=$(echo "${{ github.event.issue.body }}" | grep 'pr_number' | sed -E 's/.*pr_number: (.*)/\1/')
+          BODY="${{ github.event.issue.body }}"
+
+          # Try common patterns: pr_number: 123, /pull/123, PR #123, PR: 123
+          PR_NUMBER="$(echo "$BODY" | grep -oE 'pr_number:[[:space:]]*[0-9]+' | sed -E 's/.*([0-9]+).*/\1/')"
+          if [ -z "$PR_NUMBER" ]; then
+            PR_NUMBER="$(echo "$BODY" | grep -oE '/pull/[0-9]+' | sed -E 's#.*/([0-9]+)#\1#')"
+          fi
+          if [ -z "$PR_NUMBER" ]; then
+            PR_NUMBER="$(echo "$BODY" | grep -oE 'PR[[:space:]]*#?[[:space:]]*[0-9]+' | grep -oE '[0-9]+' | head -n1)"
+          fi
+          # Fallback: first number in body
+          if [ -z "$PR_NUMBER" ]; then
+            PR_NUMBER="$(echo "$BODY" | grep -oE '[0-9]+' | head -n1)"
+          fi
+
+          if [ -z "$PR_NUMBER" ]; then
+            echo "Could not extract PR number from issue body" >&2
+            exit 1
+          fi
+
           echo "pr=$PR_NUMBER" >> $GITHUB_OUTPUT
 
       - name: Validate submission
@@ -36,46 +57,69 @@ jobs:
             fi
           fi
 
-      - name: Update check to success
+      - name: Update or create check to success
         uses: actions/github-script@v7
         with:
           script: |
             const prNumber = ${{ steps.extract.outputs.pr }};
+            const owner = context.repo.owner;
+            const repo = context.repo.repo;
+
             const { data: pr } = await github.rest.pulls.get({
-              owner: context.repo.owner,
-              repo: context.repo.repo,
+              owner,
+              repo,
               pull_number: prNumber
             });
 
-            // Find the check run
+            const headSha = pr.head.sha;
+
+            // List check runs for the commit and find our check
             const checks = await github.rest.checks.listForRef({
-              owner: context.repo.owner,
-              repo: context.repo.repo,
-              ref: pr.head.sha
+              owner,
+              repo,
+              ref: headSha
             });
 
-            const check = checks.data.check_runs.find(c => c.name === "Questionnaire Approval");
+            const name = "Questionnaire Approval";
+            const run = checks.data.check_runs.find(c => c.name === name);
 
-            await github.rest.checks.update({
-              owner: context.repo.owner,
-              repo: context.repo.repo,
-              check_run_id: check.id,
-              conclusion: "success",
-              output: {
-                title: "Questionnaire Complete",
-                summary: "Approver submitted questionnaire or bypassed with reason(s)."
-              }
-            });
+            const output = {
+              title: "Questionnaire Complete",
+              summary: "Approver submitted questionnaire or bypassed with reason(s)."
+            };
+
+            if (run) {
+              await github.rest.checks.update({
+                owner,
+                repo,
+                check_run_id: run.id,
+                status: "completed",
+                conclusion: "success",
+                output
+              });
+            } else {
+              // If the initial PR workflow didn't create the check (or it's missing), create a completed one
+              await github.rest.checks.create({
+                owner,
+                repo,
+                name,
+                head_sha: headSha,
+                status: "completed",
+                conclusion: "success",
+                output
+              });
+            }
+
+      - name: Create JSON file
+        id: json
+        run: |
+          echo '${{ toJson(github.event.issue.body) }}' > submission.json
 
       - name: Upload JSON artifact
         uses: actions/upload-artifact@v4
         with:
           name: questionnaire-submission
-          path: ${{ github.event.issue.body }}
-      - name: Create JSON file
-        id: json
-        run: |
-          echo '${{ toJson(github.event.issue.body) }}' > submission.json
+          path: submission.json
 
       - name: Post JSON back to PR
         uses: actions/github-script@v7
