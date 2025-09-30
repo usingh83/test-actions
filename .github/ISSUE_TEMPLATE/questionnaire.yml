@@ -2,15 +2,6 @@ name: "PR Questionnaire"
 description: "Approver must fill questionnaire OR select a bypass reason."
 title: "Questionnaire for PR"
 body:
-  - type: input
-    id: pr_number
-    attributes:
-      label: "Related PR Number"
-      description: "Enter the pull request number this questionnaire applies to."
-      placeholder: "123"
-    validations:
-      required: true
-
   - type: textarea
     id: details
     attributes:
