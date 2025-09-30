@@ -1,16 +1,17 @@
 name: Questionnaire Check - create & pending approval
 
 on:
-  pull_request:
+  pull_request_target:
     types: [opened, synchronize, reopened]
+
+permissions:
+  checks: write
+  issues: write
+  contents: read
 
 jobs:
   create-checks:
     runs-on: ubuntu-latest
-    permissions:
-      checks: write
-      contents: read
-      issues: write
     steps:
       - name: Build issue link and create checks
         uses: actions/github-script@v7
@@ -22,14 +23,10 @@ jobs:
             const headSha = pr.head.sha;
             const prNumber = pr.number;
 
-            // Build a pre-filled issue URL that uses the `questionnaire.yml` template.
-            // The body is URL-encoded and includes the PR number, so the processor can find it.
             const title = encodeURIComponent(`Questionnaire for PR #${prNumber}`);
             const body = encodeURIComponent(`PR: #${prNumber}\n\n(please fill the form below)`);
             const issueUrl = `https://github.com/${owner}/${repo}/issues/new?template=questionnaire.yml&title=${title}&body=${body}`;
 
-            // 1) Create a short "create-check" that is already successful to indicate
-            //    the link/command was posted.
             await github.rest.checks.create({
               owner,
               repo,
@@ -43,7 +40,6 @@ jobs:
               }
             });
 
-            // 2) Post a PR comment with the interactive form link
             await github.rest.issues.createComment({
               owner,
               repo,
@@ -51,7 +47,6 @@ jobs:
               body: `📝 Approver action required: please open the questionnaire form and submit or bypass.\n\nOpen form: ${issueUrl}`
             });
 
-            // 3) Create the blocking "Questionnaire Approval" check in progress/pending
             await github.rest.checks.create({
               owner,
               repo,
