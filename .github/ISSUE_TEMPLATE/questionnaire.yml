@@ -1,0 +1,31 @@
+name: "PR Questionnaire"
+description: "Approver must fill questionnaire OR select a bypass reason."
+title: "Questionnaire for PR"
+body:
+  - type: input
+    id: pr_number
+    attributes:
+      label: "Related PR Number"
+      description: "Enter the pull request number this questionnaire applies to."
+      placeholder: "123"
+    validations:
+      required: true
+
+  - type: textarea
+    id: details
+    attributes:
+      label: "Questionnaire Details"
+      description: "Provide details about the change (fill this OR choose bypass below)."
+
+  - type: checkboxes
+    id: bypass
+    attributes:
+      label: "Bypass Reasons"
+      description: "If bypassing questionnaire, you must select at least one reason."
+      options:
+        - label: "Hotfix - urgent"
+        - label: "Low-risk change"
+        - label: "Approver judgment"
+        - label: "Business requirement"
+    validations:
+      required: false

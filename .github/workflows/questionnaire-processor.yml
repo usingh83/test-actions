@@ -1,0 +1,74 @@
+name: Process Questionnaire
+
+on:
+  issues:
+    types: [opened]
+
+jobs:
+  process:
+    if: contains(github.event.issue.title, 'Questionnaire for PR')
+    runs-on: ubuntu-latest
+    permissions:
+      checks: write
+      contents: read
+      pull-requests: write
+    steps:
+      - name: Parse form
+        id: parse
+        run: |
+          echo "ISSUE_BODY<<EOF" >> $GITHUB_ENV
+          echo "${{ github.event.issue.body }}" >> $GITHUB_ENV
+          echo "EOF" >> $GITHUB_ENV
+
+      - name: Extract PR number
+        id: extract
+        run: |
+          PR_NUMBER=$(echo "${{ github.event.issue.body }}" | grep 'pr_number' | sed -E 's/.*pr_number: (.*)/\1/')
+          echo "pr=$PR_NUMBER" >> $GITHUB_OUTPUT
+
+      - name: Validate submission
+        id: validate
+        run: |
+          if echo "${{ github.event.issue.body }}" | grep -q 'bypass:'; then
+            if ! echo "${{ github.event.issue.body }}" | grep -q '\- \[x\]'; then
+              echo "Bypass selected but no reasons chosen!"
+              exit 1
+            fi
+          fi
+
+      - name: Update check to success
+        uses: actions/github-script@v7
+        with:
+          script: |
+            const prNumber = ${{ steps.extract.outputs.pr }};
+            const { data: pr } = await github.rest.pulls.get({
+              owner: context.repo.owner,
+              repo: context.repo.repo,
+              pull_number: prNumber
+            });
+
+            // Find the check run
+            const checks = await github.rest.checks.listForRef({
+              owner: context.repo.owner,
+              repo: context.repo.repo,
+              ref: pr.head.sha
+            });
+
+            const check = checks.data.check_runs.find(c => c.name === "Questionnaire Approval");
+
+            await github.rest.checks.update({
+              owner: context.repo.owner,
+              repo: context.repo.repo,
+              check_run_id: check.id,
+              conclusion: "success",
+              output: {
+                title: "Questionnaire Complete",
+                summary: "Approver submitted questionnaire or bypassed with reason(s)."
+              }
+            });
+
+      - name: Upload JSON artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: questionnaire-submission
+          path: ${{ github.event.issue.body }}
