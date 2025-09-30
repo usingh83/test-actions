@@ -33,5 +33,5 @@ jobs:
               owner: context.repo.owner,
               repo: context.repo.repo,
               body: `🚦 **Questionnaire Required**  
-              Approver: Please fill out [the form](../../issues/new?template=questionnaire.yml&pr=${context.issue.number})`
+              Approver: Please fill out [the form](https://github.com/${context.repo.owner}/${context.repo.repo}/issues/new?template=questionnaire&title=Questionnaire+for+PR+${context.issue.number}&body=PR+Number:+${context.issue.number})`
             });
