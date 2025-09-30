@@ -1,4 +1,3 @@
-language: yaml
 name: Process Questionnaire
 
 on:
@@ -15,10 +14,10 @@ jobs:
       pull-requests: write
       issues: write
     steps:
-      - name: Parse form
+      - name: Extract issue body to env
         id: parse
         run: |
-          echo "ISSUE_BODY<<EOF" >> $GITHUB_ENV
+          echo "ISSUE_BODY<<'EOF'" >> $GITHUB_ENV
           echo "${{ github.event.issue.body }}" >> $GITHUB_ENV
           echo "EOF" >> $GITHUB_ENV
 
@@ -27,15 +26,10 @@ jobs:
         run: |
           BODY="${{ github.event.issue.body }}"
 
-          # Try common patterns: pr_number: 123, /pull/123, PR #123, PR: 123
-          PR_NUMBER="$(echo "$BODY" | grep -oE 'pr_number:[[:space:]]*[0-9]+' | sed -E 's/.*([0-9]+).*/\1/')"
+          PR_NUMBER="$(echo "$BODY" | grep -oE 'pr[:space:]*#?[[:space:]]*[0-9]+' | grep -oE '[0-9]+' | head -n1)"
           if [ -z "$PR_NUMBER" ]; then
             PR_NUMBER="$(echo "$BODY" | grep -oE '/pull/[0-9]+' | sed -E 's#.*/([0-9]+)#\1#')"
           fi
-          if [ -z "$PR_NUMBER" ]; then
-            PR_NUMBER="$(echo "$BODY" | grep -oE 'PR[[:space:]]*#?[[:space:]]*[0-9]+' | grep -oE '[0-9]+' | head -n1)"
-          fi
-          # Fallback: first number in body
           if [ -z "$PR_NUMBER" ]; then
             PR_NUMBER="$(echo "$BODY" | grep -oE '[0-9]+' | head -n1)"
           fi
@@ -47,17 +41,28 @@ jobs:
 
           echo "pr=$PR_NUMBER" >> $GITHUB_OUTPUT
 
-      - name: Validate submission
+      - name: Validate submission (details or at least one bypass checkbox)
         id: validate
         run: |
-          if echo "${{ github.event.issue.body }}" | grep -q 'bypass:'; then
-            if ! echo "${{ github.event.issue.body }}" | grep -q '\- \[x\]'; then
-              echo "Bypass selected but no reasons chosen!"
-              exit 1
-            fi
+          BODY="${{ github.event.issue.body }}"
+
+          # Detect any checked checkbox (GitHub form renders checked as '- [x]')
+          if echo "$BODY" | grep -qE '\- \[x\]'; then
+            echo "bypass_selected=true" >> $GITHUB_OUTPUT
+            exit 0
           fi
 
-      - name: Update or create check to success
+          # Remove PR line and checkbox lines, then check if remaining content has non-whitespace
+          CLEAN="$(echo "$BODY" | sed -E 's/PR:.*$//I' | sed -E '/- \[[ xX]\]/d' | tr -d '[:space:]')"
+          if [ -n "$CLEAN" ]; then
+            echo "details_present=true" >> $GITHUB_OUTPUT
+            exit 0
+          fi
+
+          echo "Validation failed: no details and no bypass reasons selected" >&2
+          exit 1
+
+      - name: Update or create `Questionnaire Approval` check as success and post JSON
         uses: actions/github-script@v7
         with:
           script: |
@@ -65,27 +70,40 @@ jobs:
             const owner = context.repo.owner;
             const repo = context.repo.repo;
 
+            // Get the pull request to find head SHA
             const { data: pr } = await github.rest.pulls.get({
               owner,
               repo,
               pull_number: prNumber
             });
-
             const headSha = pr.head.sha;
 
-            // List check runs for the commit and find our check
+            // Find existing check run
             const checks = await github.rest.checks.listForRef({
               owner,
               repo,
               ref: headSha
             });
 
-            const name = "Questionnaire Approval";
-            const run = checks.data.check_runs.find(c => c.name === name);
+            const checkName = "Questionnaire Check / Questionnaire Approval";
+            const run = checks.data.check_runs.find(c => c.name === checkName);
+
+            // Build a compact JSON of the submitted form body
+            const fs = require("fs");
+            const body = fs.readFileSync(process.env.GITHUB_WORKSPACE + "/__issue_body_tmp.txt", "utf8");
+            // Fallback if file not present — use the webhook payload body
+            const issueBody = body && body.length ? body : context.payload.issue.body;
+            const submission = {
+              from_issue: context.payload.issue.number,
+              pr: prNumber,
+              submitted_at: new Date().toISOString(),
+              body: issueBody
+            };
 
             const output = {
               title: "Questionnaire Complete",
-              summary: "Approver submitted questionnaire or bypassed with reason(s)."
+              summary: "Approver submitted questionnaire or selected bypass reason(s).",
+              text: "Submission posted to PR as JSON."
             };
 
             if (run) {
@@ -98,11 +116,10 @@ jobs:
                 output
               });
             } else {
-              // If the initial PR workflow didn't create the check (or it's missing), create a completed one
               await github.rest.checks.create({
                 owner,
                 repo,
-                name,
+                name: checkName,
                 head_sha: headSha,
                 status: "completed",
                 conclusion: "success",
@@ -110,30 +127,24 @@ jobs:
               });
             }
 
-      - name: Create JSON file
-        id: json
-        run: |
-          echo '${{ toJson(github.event.issue.body) }}' > submission.json
+            // Post submission JSON back to PR
+            await github.rest.issues.createComment({
+              owner,
+              repo,
+              issue_number: prNumber,
+              body: "📝 **Questionnaire Submission**\n\n```json\n" + JSON.stringify(submission, null, 2) + "\n```"
+            });
 
-      - name: Upload JSON artifact
+      - name: Save issue body for github-script (temporary)
+        run: |
+          printf "%s" "${{ github.event.issue.body }}" > __issue_body_tmp.txt
+
+      - name: Upload JSON artifact (optional)
+        if: always()
         uses: actions/upload-artifact@v4
         with:
           name: questionnaire-submission
-          path: submission.json
-
-      - name: Post JSON back to PR
-        uses: actions/github-script@v7
-        with:
-          script: |
-            const fs = require("fs");
-            const data = fs.readFileSync("submission.json", "utf8");
-            const prNumber = ${{ steps.extract.outputs.pr }};
-            await github.rest.issues.createComment({
-              owner: context.repo.owner,
-              repo: context.repo.repo,
-              issue_number: prNumber,
-              body: "📝 **Questionnaire Submission**\n\n```json\n" + data + "\n```"
-            });
+          path: __issue_body_tmp.txt
 
       - name: Close the issue
         uses: actions/github-script@v7

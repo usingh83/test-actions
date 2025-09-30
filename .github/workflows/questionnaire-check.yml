@@ -1,37 +1,65 @@
-name: Questionnaire Check
+name: Questionnaire Check - create & pending approval
 
 on:
   pull_request:
     types: [opened, synchronize, reopened]
 
 jobs:
-  create-check:
+  create-checks:
     runs-on: ubuntu-latest
     permissions:
       checks: write
-      pull-requests: write
       contents: read
+      issues: write
     steps:
-      - uses: actions/github-script@v7
+      - name: Build issue link and create checks
+        uses: actions/github-script@v7
         with:
           script: |
+            const owner = context.repo.owner;
+            const repo = context.repo.repo;
+            const pr = context.payload.pull_request;
+            const headSha = pr.head.sha;
+            const prNumber = pr.number;
+
+            // Build a pre-filled issue URL that uses the `questionnaire.yml` template.
+            // The body is URL-encoded and includes the PR number, so the processor can find it.
+            const title = encodeURIComponent(`Questionnaire for PR #${prNumber}`);
+            const body = encodeURIComponent(`PR: #${prNumber}\n\n(please fill the form below)`);
+            const issueUrl = `https://github.com/${owner}/${repo}/issues/new?template=questionnaire.yml&title=${title}&body=${body}`;
+
+            // 1) Create a short "create-check" that is already successful to indicate
+            //    the link/command was posted.
             await github.rest.checks.create({
-              owner: context.repo.owner,
-              repo: context.repo.repo,
-              name: "Questionnaire Approval",
-              head_sha: context.payload.pull_request.head.sha,
-              status: "in_progress",
+              owner,
+              repo,
+              name: "Questionnaire Check / create-check",
+              head_sha: headSha,
+              status: "completed",
+              conclusion: "success",
               output: {
-                title: "Questionnaire Required",
-                summary: "Please fill out the PR questionnaire issue form."
+                title: "Questionnaire link posted",
+                summary: "A questionnaire issue link was added to this PR for approver input."
               }
             });
 
-            // Post link to form in PR comment
+            // 2) Post a PR comment with the interactive form link
             await github.rest.issues.createComment({
-              issue_number: context.issue.number,
-              owner: context.repo.owner,
-              repo: context.repo.repo,
-              body: `🚦 **Questionnaire Required**  
-              Approver: Please fill out [the form](https://github.com/${context.repo.owner}/${context.repo.repo}/issues/new?template=questionnaire.yml&title=Questionnaire+for+PR+${context.issue.number}&body=This+submission+applies+to+PR+${context.issue.number})`
+              owner,
+              repo,
+              issue_number: prNumber,
+              body: `📝 Approver action required: please open the questionnaire form and submit or bypass.\n\nOpen form: ${issueUrl}`
+            });
+
+            // 3) Create the blocking "Questionnaire Approval" check in progress/pending
+            await github.rest.checks.create({
+              owner,
+              repo,
+              name: "Questionnaire Check / Questionnaire Approval",
+              head_sha: headSha,
+              status: "in_progress",
+              output: {
+                title: "Questionnaire required",
+                summary: "This check stays in_progress until the questionnaire issue is submitted or bypassed."
+              }
             });
