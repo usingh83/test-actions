@@ -64,17 +64,12 @@ jobs:
         uses: actions/github-script@v7
         with:
           script: |
-            try {
-              const prNumber = ${ { steps.extract.outputs.pr } };
-            } catch (e) {
-              // fallback if outputs interpolation fails (log and exit)
-            }
-            const prNumber = `${{ steps.extract.outputs.pr }}`;
+            const prNumber = '${{ steps.extract.outputs.pr }}';
             if (!prNumber) throw new Error("PR number output missing.");
-
+      
             const owner = context.repo.owner;
             const repo = context.repo.repo;
-
+      
             // Get the pull request to find head SHA
             const { data: pr } = await github.rest.pulls.get({
               owner,
@@ -82,33 +77,33 @@ jobs:
               pull_number: prNumber
             });
             const headSha = pr.head.sha;
-
+      
             // Find existing check run
             const checks = await github.rest.checks.listForRef({
               owner,
               repo,
               ref: headSha
             });
-
+      
             const checkName = "Questionnaire Check / Questionnaire Approval";
             const run = checks.data.check_runs.find(c => c.name === checkName);
-
+      
             // Use webhook issue body directly (avoid reading a temp file)
             const issueBody = context.payload.issue && context.payload.issue.body ? context.payload.issue.body : "";
-
+      
             const submission = {
               from_issue: context.payload.issue.number,
               pr: prNumber,
               submitted_at: new Date().toISOString(),
               body: issueBody
             };
-
+      
             const output = {
               title: "Questionnaire Complete",
               summary: "Approver submitted questionnaire or selected bypass reason(s).",
               text: "Submission posted to PR as JSON."
             };
-
+      
             if (run) {
               await github.rest.checks.update({
                 owner,
@@ -129,7 +124,7 @@ jobs:
                 output
               });
             }
-
+      
             // Post submission JSON back to PR
             await github.rest.issues.createComment({
               owner,
