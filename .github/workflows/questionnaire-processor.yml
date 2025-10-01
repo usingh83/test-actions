@@ -26,7 +26,7 @@ jobs:
         run: |
           BODY="${{ github.event.issue.body }}"
 
-          PR_NUMBER="$(echo "$BODY" | grep -oE 'pr[:space:]*#?[[:space:]]*[0-9]+' | grep -oE '[0-9]+' | head -n1)"
+          PR_NUMBER="$(echo "$BODY" | grep -oE 'pr[[:space:]]*#?[[:space:]]*[0-9]+' | grep -oE '[0-9]+' | head -n1)"
           if [ -z "$PR_NUMBER" ]; then
             PR_NUMBER="$(echo "$BODY" | grep -oE '/pull/[0-9]+' | sed -E 's#.*/([0-9]+)#\1#')"
           fi
