@@ -17,8 +17,8 @@ jobs:
       - name: Extract issue body to env
         id: parse
         run: |
-          echo "ISSUE_BODY<<'EOF'" >> $GITHUB_ENV
-          echo "${{ github.event.issue.body }}" >> $GITHUB_ENV
+          echo "ISSUE_BODY<<EOF" >> $GITHUB_ENV
+          printf "%s\n" "${{ github.event.issue.body }}" >> $GITHUB_ENV
           echo "EOF" >> $GITHUB_ENV
 
       - name: Extract PR number
