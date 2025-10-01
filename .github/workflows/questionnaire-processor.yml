@@ -46,13 +46,11 @@ jobs:
         run: |
           BODY="${{ github.event.issue.body }}"
 
-          # Detect any checked checkbox (GitHub form renders checked as '- [x]')
           if echo "$BODY" | grep -qE '\- \[x\]'; then
             echo "bypass_selected=true" >> $GITHUB_OUTPUT
             exit 0
           fi
 
-          # Remove PR line and checkbox lines, then check if remaining content has non-whitespace
           CLEAN="$(echo "$BODY" | sed -E 's/PR:.*$//I' | sed -E '/- \[[ xX]\]/d' | tr -d '[:space:]')"
           if [ -n "$CLEAN" ]; then
             echo "details_present=true" >> $GITHUB_OUTPUT
@@ -66,7 +64,14 @@ jobs:
         uses: actions/github-script@v7
         with:
           script: |
-            const prNumber = ${{ steps.extract.outputs.pr }};
+            try {
+              const prNumber = ${ { steps.extract.outputs.pr } };
+            } catch (e) {
+              // fallback if outputs interpolation fails (log and exit)
+            }
+            const prNumber = `${{ steps.extract.outputs.pr }}`;
+            if (!prNumber) throw new Error("PR number output missing.");
+
             const owner = context.repo.owner;
             const repo = context.repo.repo;
 
@@ -88,11 +93,9 @@ jobs:
             const checkName = "Questionnaire Check / Questionnaire Approval";
             const run = checks.data.check_runs.find(c => c.name === checkName);
 
-            // Build a compact JSON of the submitted form body
-            const fs = require("fs");
-            const body = fs.readFileSync(process.env.GITHUB_WORKSPACE + "/__issue_body_tmp.txt", "utf8");
-            // Fallback if file not present — use the webhook payload body
-            const issueBody = body && body.length ? body : context.payload.issue.body;
+            // Use webhook issue body directly (avoid reading a temp file)
+            const issueBody = context.payload.issue && context.payload.issue.body ? context.payload.issue.body : "";
+
             const submission = {
               from_issue: context.payload.issue.number,
               pr: prNumber,
@@ -135,7 +138,8 @@ jobs:
               body: "📝 **Questionnaire Submission**\n\n```json\n" + JSON.stringify(submission, null, 2) + "\n```"
             });
 
-      - name: Save issue body for github-script (temporary)
+      - name: Save issue body for artifact (optional)
+        if: always()
         run: |
           printf "%s" "${{ github.event.issue.body }}" > __issue_body_tmp.txt
 
