@@ -24,18 +24,18 @@ jobs:
       - name: Extract PR number
         id: extract
         run: |
-          BODY="${{ github.event.issue.body }}"
-
-          PR_NUMBER="$(echo "$BODY" | grep -oE 'pr[[:space:]]*#?[[:space:]]*[0-9]+' | grep -oE '[0-9]+' | head -n1)"
+          TITLE="${{ github.event.issue.title }}"
+  
+          PR_NUMBER="$(echo "$TITLE" | grep -oE 'pr[[:space:]]*#?[[:space:]]*[0-9]+' | grep -oE '[0-9]+' | head -n1)"
           if [ -z "$PR_NUMBER" ]; then
-            PR_NUMBER="$(echo "$BODY" | grep -oE '/pull/[0-9]+' | sed -E 's#.*/([0-9]+)#\1#')"
+            PR_NUMBER="$(echo "$TITLE" | grep -oE '/pull/[0-9]+' | sed -E 's#.*/([0-9]+)#\1#')"
           fi
           if [ -z "$PR_NUMBER" ]; then
-            PR_NUMBER="$(echo "$BODY" | grep -oE '[0-9]+' | head -n1)"
+            PR_NUMBER="$(echo "$TITLE" | grep -oE '[0-9]+' | head -n1)"
           fi
-
+  
           if [ -z "$PR_NUMBER" ]; then
-            echo "Could not extract PR number from issue body" >&2
+            echo "Could not extract PR number from issue title" >&2
             exit 1
           fi
 
